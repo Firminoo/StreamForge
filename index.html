@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF--T">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StreamForge Web</title>
+    <style>
+        /* Estilo adaptado do seu tema StreamForge */
+        body {
+            background-color: #1A1D2E;
+            color: #E0E1F0;
+            font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            font-size: 16px;
+        }
+        .container {
+            background-color: #232740;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 600px;
+        }
+        h1 {
+            color: #FFFFFF;
+            text-align: center;
+            margin-bottom: 30px;
+            font-weight: 600;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #B0B3D6;
+            font-weight: bold;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            background-color: #1A1D2E;
+            border: 1px solid #353A58;
+            border-radius: 4px;
+            color: #E0E1F0;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        input[type="text"]:focus {
+            border-color: #8A3FFC;
+            outline: none;
+        }
+        .radio-group label {
+            display: inline-block;
+            margin-right: 20px;
+            color: #E0E1F0;
+            font-weight: normal;
+        }
+        button {
+            width: 100%;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        #downloadBtn {
+            background-color: #8A3FFC; /* Roxo primário */
+            color: #FFFFFF;
+        }
+        #downloadBtn:hover {
+            background-color: #9A50FF;
+        }
+        #downloadBtn:disabled {
+            background-color: #353A58;
+            color: #5A5F7A;
+            cursor: not-allowed;
+        }
+        .status-box {
+            margin-top: 30px;
+            background-color: #1A1D2E;
+            padding: 20px;
+            border-radius: 4px;
+            display: none; /* Escondido por padrão */
+            text-align: center;
+        }
+        .progress-bar-container {
+            width: 100%;
+            background-color: #353A58;
+            border-radius: 4px;
+            overflow: hidden;
+            height: 10px;
+            margin-top: 10px;
+        }
+        .progress-bar {
+            width: 0%;
+            height: 100%;
+            background-color: #00BFA5; /* Ciano vibrante */
+            transition: width 0.4s ease;
+        }
+        #downloadLink {
+            display: block;
+            margin-top: 15px;
+            padding: 10px 15px;
+            background-color: #00BFA5;
+            color: #FFFFFF;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        #downloadLink:hover {
+            background-color: #00DBC2;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>StreamForge Web</h1>
+    <form id="downloadForm">
+        <div class="form-group">
+            <label for="urlInput">URL do Vídeo</label>
+            <input type="text" id="urlInput" placeholder="Cole o link do YouTube aqui..." required>
+        </div>
+        <div class="form-group">
+            <label>Formato de Saída</label>
+            <div class="radio-group">
+                <label><input type="radio" name="format" value="audio" checked> Áudio (MP3)</label>
+                <label><input type="radio" name="format" value="video"> Vídeo (MP4)</label>
+            </div>
+        </div>
+        <button type="submit" id="downloadBtn">Fazer Download</button>
+    </form>
+
+    <div class="status-box" id="statusBox">
+        <p id="statusText">Iniciando...</p>
+        <div class="progress-bar-container" id="progressBarContainer">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <p id="statusDetails"></p>
+        <a href="#" id="downloadLink" style="display: none;">Clique para Baixar</a>
+    </div>
+</div>
+
+<script>
+    const downloadForm = document.getElementById('downloadForm');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const urlInput = document.getElementById('urlInput');
+    const statusBox = document.getElementById('statusBox');
+    const statusText = document.getElementById('statusText');
+    const statusDetails = document.getElementById('statusDetails');
+    const progressBar = document.getElementById('progressBar');
+    const progressBarContainer = document.getElementById('progressBarContainer');
+    const downloadLink = document.getElementById('downloadLink');
+
+    let pollingInterval;
+
+    downloadForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const url = urlInput.value;
+        const downloadType = document.querySelector('input[name="format"]:checked').value;
+
+        if (!url) {
+            alert("Por favor, insira uma URL.");
+            return;
+        }
+
+        // Desabilita o botão e mostra o status
+        downloadBtn.disabled = true;
+        downloadBtn.textContent = 'Aguarde...';
+        statusBox.style.display = 'block';
+        statusText.textContent = 'Enviando para a fila...';
+        statusDetails.textContent = '';
+        progressBar.style.width = '0%';
+        progressBarContainer.style.display = 'block';
+        downloadLink.style.display = 'none';
+
+        try {
+            const response = await fetch('/start-download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, type: downloadType })
+            });
+
+            const data = await response.json();
+
+            if (data.status === 'queued') {
+                // Inicia a verificação de status periodicamente
+                pollingInterval = setInterval(() => checkStatus(data.task_id), 2000);
+            } else {
+                throw new Error(data.details || 'Erro ao iniciar o download.');
+            }
+        } catch (error) {
+            handleError(error.message);
+        }
+    });
+
+    async function checkStatus(taskId) {
+        try {
+            const response = await fetch(`/status/${taskId}`);
+            if (!response.ok) {
+                throw new Error(`Servidor respondeu com status ${response.status}`);
+            }
+            const data = await response.json();
+
+            statusDetails.textContent = data.details || '';
+
+            switch (data.status) {
+                case 'starting':
+                    statusText.textContent = 'Iniciando...';
+                    break;
+                case 'downloading':
+                    statusText.textContent = `Baixando... ${Math.round(data.progress)}%`;
+                    progressBar.style.width = data.progress + '%';
+                    break;
+                case 'processing':
+                    statusText.textContent = 'Processando arquivo...';
+                    progressBar.style.width = '100%';
+                    break;
+                case 'success':
+                    statusText.textContent = 'Download Concluído!';
+                    progressBarContainer.style.display = 'none';
+                    downloadLink.href = `/download/${data.filename}`;
+                    downloadLink.textContent = `Baixar "${data.title}"`;
+                    downloadLink.style.display = 'block';
+                    cleanup();
+                    break;
+                case 'error':
+                    throw new Error(data.details || 'Ocorreu um erro desconhecido.');
+                case 'not_found':
+                    throw new Error('Tarefa não encontrada. Tente novamente.');
+                
+            }
+        } catch (error) {
+            handleError(error.message);
+        }
+    }
+    
+    function handleError(message) {
+        statusText.textContent = 'Erro!';
+        statusDetails.textContent = message;
+        progressBarContainer.style.display = 'none';
+        cleanup();
+    }
+
+    function cleanup() {
+        clearInterval(pollingInterval);
+        downloadBtn.disabled = false;
+        downloadBtn.textContent = 'Fazer Download';
+    }
+</script>
+
+</body>
+</html>
